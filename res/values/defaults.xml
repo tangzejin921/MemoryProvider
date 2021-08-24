@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">MemoryProvider</string>
+    <string name="memory_provider_default">
+        "{\"debug\":true}"
+    </string>
+
+</resources>
