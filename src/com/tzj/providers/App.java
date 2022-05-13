@@ -5,7 +5,7 @@ import android.util.Log;
 
 public class App extends Application {
     public static final String TAG = "MemoryKV";
-    public static final Boolean DEBUG = true;
+    public static Boolean DEBUG = true;
 
     @Override
     public void onCreate() {

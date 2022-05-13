@@ -7,6 +7,8 @@ import android.content.UriMatcher;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.AsyncTask;
+import android.os.Bundle;
 import android.os.ServiceManager;
 import android.provider.Settings;
 import android.util.ArrayMap;
@@ -17,13 +19,16 @@ import org.json.JSONObject;
 import java.io.PrintWriter;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 以 k-v 方式存放与内存中,重启后将恢复默认值
  */
 final public class MemoryProvider extends ContentProvider {
     private static final String TAG = App.TAG;
-    private Boolean DEBUG = App.DEBUG;
+
+    private static int timeout = 30;
+
     //可以存储的最大数据个数
     private static final int MAX_COUNT = 100;
     //存储的数据
@@ -31,6 +36,7 @@ final public class MemoryProvider extends ContentProvider {
 
     private static final UriMatcher mMatcher;
 
+    public static final Uri URI = Uri.parse("content://memory_provider");
     public static final Uri URI_KV = Uri.parse("content://memory_provider/kv");
 
     static {
@@ -44,12 +50,16 @@ final public class MemoryProvider extends ContentProvider {
         init(string);
         Object debug = get("debug");
         if (debug instanceof Boolean) {
-            DEBUG = (Boolean) debug;
+            App.DEBUG = (Boolean) debug;
         }
-        if (DEBUG) {
+        if (App.DEBUG) {
             Log.d(TAG, "onCreate: ");
         }
-        ServiceManager.addService("memory_provider", new MemoryService(this));
+        try {
+            ServiceManager.addService("memory_provider", new MemoryService(this));
+        } catch (Exception e) {
+            Log.e(TAG, e.getMessage(), e);
+        }
 
         try {
             String defaultStr = Settings.System.getString(getContext().getContentResolver(), "memory_provider_default");
@@ -83,8 +93,8 @@ final public class MemoryProvider extends ContentProvider {
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         if (mMatcher.match(uri) == 1) {
-            if (mMap.size() > MAX_COUNT){
-                Log.e(TAG,"insert 存储超过数量限制了");
+            if (mMap.size() > MAX_COUNT) {
+                Log.e(TAG, "insert 存储超过数量限制了");
                 return uri;
             }
             Iterator<String> iterator = values.keySet().iterator();
@@ -109,8 +119,8 @@ final public class MemoryProvider extends ContentProvider {
         Iterator<String> iterator = values.keySet().iterator();
         int count = 0;
         if (mMatcher.match(uri) == 1) {
-            if (mMap.size() > MAX_COUNT){
-                Log.e(TAG,"update 存储超过数量限制了");
+            if (mMap.size() > MAX_COUNT) {
+                Log.e(TAG, "update 存储超过数量限制了");
                 return count;
             }
             while (iterator.hasNext()) {
@@ -120,6 +130,45 @@ final public class MemoryProvider extends ContentProvider {
             }
         }
         return count;
+    }
+
+    @Override
+    public Bundle call(String method, String arg, Bundle extras) {
+        try {
+            if (method.equals("timeout")) {
+                timeout = Integer.parseInt(arg);
+                Bundle bundle = new Bundle();
+                bundle.putInt("timeout", timeout);
+                return bundle;
+            } else if (method.equals("cmd")) {
+                if (App.DEBUG) {
+                    Log.i(TAG, "call: " + arg);
+                }
+                Process process = Runtime.getRuntime().exec(arg);
+                StringBox errSb = new StringBox();
+                StringBox resultSb = new StringBox();
+                AsyncTask.execute(new InputStreamRunnable(process.getErrorStream(), errSb));
+                AsyncTask.execute(new InputStreamRunnable(process.getInputStream(), resultSb));
+                boolean b = process.waitFor(timeout, TimeUnit.SECONDS);
+                if (App.DEBUG) {
+                    Log.i(TAG, "waitFor: " + b);
+                    Log.i(TAG, "isAlive: " + process.isAlive());
+                    Log.i(TAG, "result: " + resultSb.toString());
+                    Log.i(TAG, "err: " + errSb.toString());
+                }
+                if (process.isAlive()) {
+                    process.destroy();
+                }
+                Bundle bundle = new Bundle();
+                bundle.putString("result", resultSb.toString());
+                bundle.putString("err", errSb.toString());
+                bundle.putBoolean("code", b);
+                return bundle;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return super.call(method, arg, extras);
     }
 
     /**
